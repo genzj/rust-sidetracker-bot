@@ -1,11 +1,13 @@
-use serde_json::{json, Value};
-use std::collections::VecDeque;
-use std::env;
-
 use atproto_api::{Agent, AtpAgent, Session};
 use dotenv::dotenv;
+use futures::FutureExt;
+use log::{debug, error, info};
 use openai::chat::{ChatCompletion, ChatCompletionMessage, ChatCompletionMessageRole};
 use openai::Credentials;
+use serde_json::{json, Value};
+use std::collections::VecDeque;
+use std::panic::AssertUnwindSafe;
+use std::env;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Post {
@@ -36,10 +38,12 @@ impl Post {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
+    pretty_env_logger::init();
     let agent = must_create_agent().await?;
     let res = get_post_thread(
         agent,
         "at://nghua.me/app.bsky.feed.post/3leb44umzuc2l".to_string(),
+        // "at://demishuyan.bsky.social/app.bsky.feed.post/3lem7oosaz22t".to_string(),
     )
     .await?;
     let mut post = &res["thread"];
@@ -66,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut idx: u32 = 1;
     for p in thread.iter_mut() {
         p.idx = idx;
-        println!("{:?} {}", p, p.get_share_uri());
+        debug!("{:?} {}", p, p.get_share_uri());
         idx += 1;
     }
 
@@ -83,36 +87,43 @@ async fn must_create_agent() -> Result<AtpAgent, Box<dyn std::error::Error>> {
     let mut agent: Option<AtpAgent> = None;
     let session = env::var("BLUESKY_SESSION").unwrap_or("".to_string());
     if session.len() > 0 {
-        println!("loading from session {:?}", session);
+        debug!("loading from session {:?}", session);
         let mut session_agent = AtpAgent::new("https://bsky.social".to_string());
         match serde_json::from_str::<Session>(session.as_str()) {
             Ok(session) => {
                 session_agent.session = Some(session);
-                match session_agent.clone().refresh_session().await {
-                    Ok(()) => {
-                        println!("session refreshed successfully");
+                let refresh_result = AssertUnwindSafe(async {
+                    debug!("trying refreshing session");
+                    session_agent.clone().refresh_session().await
+                }).catch_unwind().await;
+                match refresh_result {
+                    Ok(Ok(())) => {
+                        info!("session refreshed successfully");
                         agent = Some(session_agent)
                     }
+                    Ok(Err(err)) => {
+                        debug!("session refresh failed: {:?}", err);
+                    }
                     Err(err) => {
-                        println!("session refresh failed: {:?}", err);
+                        debug!("session refresh panic: {:?}", err);
                     }
                 }
             }
             Err(err) => {
-                println!("session load failed: {:?}", err);
+                debug!("session load failed: {:?}", err);
             }
         }
     }
 
     if agent.is_none() {
-        println!("resuming session failed, fallback to login");
+        info!("resuming session failed, fallback to login");
         let login_agent = AtpAgent::new("https://bsky.social".to_string())
             .login(
                 env::var("BLUESKY_IDENTIFIER").unwrap(),
                 env::var("BLUESKY_PASSWORD").unwrap(),
             )
             .await?;
-        println!("{:?}", serde_json::to_string(&login_agent.session)?);
+        debug!("{:?}", serde_json::to_string(&login_agent.session)?);
         agent = Some(login_agent);
     }
     Ok(agent.unwrap())
@@ -170,6 +181,8 @@ fn generate_prompt(thread: &VecDeque<Post>) -> String {
     prompt
 }
 
+const OPENAI_MODEL_DEFAULT: &str = "gpt-4o-mini";
+
 async fn openai_locate_sidetracker(thread: &VecDeque<Post>) -> Option<Post> {
     // Relies on OPENAI_KEY and optionally OPENAI_BASE_URL.
     let credentials = Credentials::from_env();
@@ -185,14 +198,16 @@ async fn openai_locate_sidetracker(thread: &VecDeque<Post>) -> Option<Post> {
         ..Default::default()
         },
     ];
-    let chat_completion = ChatCompletion::builder("gpt-4o-mini", messages)
+    let model = env::var("OPENAI_MODEL").unwrap_or(OPENAI_MODEL_DEFAULT.to_string());
+    debug!("using model {}", model);
+    let chat_completion = ChatCompletion::builder(&model, messages)
         .credentials(credentials)
         .create()
         .await;
     if let Ok(output) = chat_completion {
         let returned_message = output.choices.first().unwrap().message.clone();
-        println!(
-            "{:#?}: {}",
+        debug!(
+            "OpenAI response: {:#?}: {}",
             returned_message.role,
             returned_message.content.clone().unwrap().trim()
         );
@@ -206,7 +221,7 @@ async fn openai_locate_sidetracker(thread: &VecDeque<Post>) -> Option<Post> {
         }
         return None;
     } else {
-        println!("error: {:#?}", chat_completion);
+        error!("error: {:#?}", chat_completion);
         None
     }
 }
