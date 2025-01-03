@@ -1,5 +1,6 @@
-use atproto_api::{Agent, AtpAgent};
-use serde_json::{json, Value};
+use log::debug;
+use serde_json::Value;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Post {
@@ -32,22 +33,6 @@ impl Post {
     }
 }
 
-pub async fn get_post_thread(
-    agent: AtpAgent,
-    uri: String,
-) -> Result<Value, Box<dyn std::error::Error>> {
-    let params = json!({
-      "uri": uri,
-      "depth": "1"
-    });
-
-    let res = agent
-        .get("app.bsky.feed.getPostThread".to_string(), params)
-        .await?;
-
-    Ok(res)
-}
-
 pub fn parse_post_text(post: &Value) -> &str {
     post["record"]["text"].as_str().unwrap().trim()
 }
@@ -73,6 +58,40 @@ pub fn parse_embedded(post: &Value) -> Option<Post> {
         (_, _, _) => None,
     };
     ret
+}
+
+pub fn flatten_thread(thread_envelope: &Value) -> VecDeque<Post> {
+    let mut thread = &thread_envelope["thread"];
+    let mut result = VecDeque::with_capacity(10);
+    loop {
+        let post = &thread["post"];
+        let post = Post::new(
+            parse_post_author_handle(post),
+            parse_post_text(post),
+            parse_post_uri(post),
+            0,
+        );
+        // ignore non text posts
+        if post.text.len() > 0 {
+            result.push_front(post)
+        }
+        if thread["parent"].is_null() {
+            if let Some(p) = parse_embedded(&thread) {
+                result.push_front(p)
+            }
+            break;
+        }
+        thread = &thread["parent"];
+    }
+
+    // renumber the posts
+    let mut idx: u32 = 1;
+    for p in result.iter_mut() {
+        p.idx = idx;
+        debug!("{:?} {}", p, p.get_share_uri());
+        idx += 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -139,5 +158,17 @@ mod tests {
         let thread = thread();
         let embedded = parse_embedded(&thread);
         assert!(embedded.is_none());
+    }
+
+    #[test]
+    fn test_flatten_thread() {
+        let thread_envelope =
+            serde_json::from_str(include_str!("../test_data/thread_3leb44umzuc2l.json5")).unwrap();
+
+        let flattened = flatten_thread(&thread_envelope);
+        assert_eq!(flattened.len(), 13);
+        assert_eq!(flattened[0].uri, "at://did:plc:fkjudld5cg4ailkuyec65wvg/app.bsky.feed.post/3le73kidz7k2e");
+        assert_eq!(flattened[1].uri, "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3le7txyg4y22e");
+        assert_eq!(flattened.back().unwrap().uri, "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3leb44umzuc2l");
     }
 }
