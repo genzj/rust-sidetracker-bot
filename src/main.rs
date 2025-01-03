@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "at://nghua.me/app.bsky.feed.post/3leb44umzuc2l".to_string(),
         // "at://demishuyan.bsky.social/app.bsky.feed.post/3lem7oosaz22t".to_string(),
     )
-    .await?;
+        .await?;
 
     let thread = post::flatten_thread(&res);
 

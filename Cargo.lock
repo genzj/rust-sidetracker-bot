@@ -1432,6 +1432,7 @@ dependencies = [
  "mockito",
  "openai",
  "pretty_env_logger",
+ "serde",
  "serde_json",
  "serde_json5",
  "tokio",

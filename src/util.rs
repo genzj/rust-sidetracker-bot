@@ -1,4 +1,6 @@
+#[cfg(test)]
 use pretty_env_logger::env_logger;
+use tokio::io::AsyncWriteExt;
 
 pub fn find_and_parse_first_integer(input: String) -> Option<u32> {
     let mut num_str = String::new();
@@ -20,6 +22,7 @@ pub fn find_and_parse_first_integer(input: String) -> Option<u32> {
     }
 }
 
+#[cfg(test)]
 pub fn ensure_tailing_slash(s: &str) -> String {
     let mut s = s.to_owned();
     if !s.ends_with('/') {
@@ -28,7 +31,41 @@ pub fn ensure_tailing_slash(s: &str) -> String {
     s
 }
 
+pub async fn dump_to_private_file<T>(
+    file_path: &str,
+    data: &T,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    T: ?Sized + serde::Serialize,
+{
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(file_path)
+        .await?;
+    let json = serde_json::to_string_pretty(data)?;
+    file.write_all(json.as_bytes()).await?;
+    file.flush().await?;
+    Ok(())
+}
+
+pub async fn load_from_file<T>(file_path: &str) -> Result<T, Box<dyn std::error::Error>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let session = tokio::fs::read(file_path).await?;
+    let data: T = serde_json::from_reader(std::io::Cursor::new(session))?;
+    Ok(data)
+}
+
+pub async fn is_file_exists(file_path: &str) -> bool {
+    tokio::fs::metadata(file_path).await.is_ok()
+}
+
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn init_test_logger() {
     let _ = env_logger::builder()
         .is_test(true)

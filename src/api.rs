@@ -1,28 +1,31 @@
-use atproto_api::{Agent, AtpAgent, Session};
+use crate::util::{dump_to_private_file, is_file_exists, load_from_file};
+use atproto_api::{Agent, AtpAgent};
 use futures::FutureExt;
-use log::{debug, info};
+use log::{debug, info, trace};
 use serde_json::{json, Value};
 use std::env;
 use std::panic::AssertUnwindSafe;
 
+const SESSION_FILE: &str = "session.json";
+
 pub async fn must_create_agent() -> Result<AtpAgent, Box<dyn std::error::Error>> {
     let mut agent: Option<AtpAgent> = None;
-    let session = env::var("BLUESKY_SESSION").unwrap_or("".to_string());
-    if session.len() > 0 {
-        debug!("loading from session {:?}", session);
+    if is_file_exists(SESSION_FILE).await {
+        debug!("loading from session file {:?}", SESSION_FILE);
         let mut session_agent = AtpAgent::new("https://bsky.social".to_string());
-        match serde_json::from_str::<Session>(session.as_str()) {
+        match load_from_file(SESSION_FILE).await {
             Ok(session) => {
+                debug!("session file loaded successfully");
                 session_agent.session = Some(session);
                 let refresh_result = AssertUnwindSafe(async {
                     debug!("trying refreshing session");
                     session_agent.clone().refresh_session().await
                 })
-                .catch_unwind()
-                .await;
+                    .catch_unwind()
+                    .await;
                 match refresh_result {
                     Ok(Ok(())) => {
-                        info!("session refreshed successfully");
+                        info!("saved session refreshed successfully");
                         agent = Some(session_agent)
                     }
                     Ok(Err(err)) => {
@@ -47,7 +50,10 @@ pub async fn must_create_agent() -> Result<AtpAgent, Box<dyn std::error::Error>>
                 env::var("BLUESKY_PASSWORD").unwrap(),
             )
             .await?;
-        debug!("{:?}", serde_json::to_string(&login_agent.session)?);
+        info!("logged in successfully");
+        trace!("logged in as {:?}", &login_agent.session);
+        debug!("dumping session to file {SESSION_FILE}");
+        dump_to_private_file(SESSION_FILE, &login_agent.session).await?;
         agent = Some(login_agent);
     }
     Ok(agent.unwrap())
@@ -72,10 +78,10 @@ pub async fn get_post_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{ensure_tailing_slash, init_test_logger};
+    use crate::util::{ensure_tailing_slash};
+    use atproto_api::Session;
     use mockito::Matcher::PartialJsonString;
     use mockito::{Matcher, Server};
-
 
     fn create_test_session() -> Session {
         let session = r#"{
@@ -168,8 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_post_thread() {
-        init_test_logger();
-        let mut server = mockito::Server::new_async().await;
+        let mut server = Server::new_async().await;
         mock_refresh_session(&mut server).await;
         mock_get_post_thread(&mut server).await;
         let agent = create_test_agent(&server);
@@ -178,5 +183,16 @@ mod tests {
             .unwrap();
         assert!(res.is_object());
         assert_eq!(res["thread"]["$type"], "app.bsky.feed.defs#threadViewPost");
+    }
+
+    #[tokio::test]
+    async fn test_agent_from_session() {}
+
+    #[tokio::test]
+    async fn test_agent_from_login() {
+        let mut server = Server::new_async().await;
+        mock_create_session(&mut server).await;
+        mock_refresh_session(&mut server).await;
+        mock_get_post_thread(&mut server).await;
     }
 }
