@@ -1,3 +1,5 @@
+use pretty_env_logger::env_logger;
+
 pub fn find_and_parse_first_integer(input: String) -> Option<u32> {
     let mut num_str = String::new();
     let mut found_number = false;
@@ -16,6 +18,22 @@ pub fn find_and_parse_first_integer(input: String) -> Option<u32> {
     } else {
         None
     }
+}
+
+pub fn ensure_tailing_slash(s: &str) -> String {
+    let mut s = s.to_owned();
+    if !s.ends_with('/') {
+        s.push('/')
+    }
+    s
+}
+
+#[cfg(test)]
+pub fn init_test_logger() {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Trace)
+        .try_init();
 }
 
 #[cfg(test)]
@@ -84,5 +102,14 @@ mod tests {
             find_and_parse_first_integer("!@#123$%^".to_string()),
             Some(123)
         );
+    }
+
+    #[test]
+    fn test_enensure_tailing_slash() {
+        let s = "https://example.com";
+        assert_eq!(ensure_tailing_slash(&s), "https://example.com/");
+
+        let s = "https://example.com/";
+        assert_eq!(ensure_tailing_slash(&s), "https://example.com/");
     }
 }
