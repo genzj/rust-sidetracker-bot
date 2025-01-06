@@ -78,7 +78,7 @@ pub async fn get_post_thread(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{ensure_tailing_slash};
+    use crate::util::ensure_tailing_slash;
     use atproto_api::Session;
     use mockito::Matcher::PartialJsonString;
     use mockito::{Matcher, Server};
