@@ -1,6 +1,67 @@
 use log::debug;
 use serde_json::Value;
 use std::collections::VecDeque;
+use url::Url;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PostLocator {
+    repository: String,
+    rkey: String,
+}
+
+impl PostLocator {
+    pub fn new(repository: impl Into<String>, rkey: impl Into<String>) -> Self {
+        Self {
+            repository: repository.into(),
+            rkey: rkey.into(),
+        }
+    }
+
+    pub fn from_url(url: &str) -> Result<Self, url::ParseError> {
+        // workaround of url parsing treating : as the port separator
+        let use_did = url.contains("did:plc:");
+        let url = url.replace("did:plc:", "did_plc_");
+        let url = Url::parse(&url)?;
+        match url.scheme() {
+            "at" => {
+                let paths: Vec<&str> = url.path_segments().unwrap().collect();
+                if paths.len() != 2 {
+                    return Err(url::ParseError::InvalidDomainCharacter);
+                }
+                let repo = if use_did {
+                    url.host_str().unwrap().replace("did_plc_", "did:plc:")
+                } else {
+                    url.host_str().unwrap().to_string()
+                };
+                Ok(Self::new(&repo, *paths.last().unwrap()))
+            }
+            "http" | "https" => {
+                let paths: Vec<&str> = url.path_segments().unwrap().collect();
+                if paths.len() != 4 {
+                    return Err(url::ParseError::InvalidDomainCharacter);
+                }
+                let repo = if use_did {
+                    paths[1].replace("did_plc_", "did:plc:")
+                } else {
+                    paths[1].to_string()
+                };
+                Ok(Self::new(&repo, *paths.last().unwrap()))
+            }
+            _ => Err(url::ParseError::InvalidDomainCharacter),
+        }
+    }
+
+    pub fn at_uri(&self) -> String {
+        format!("at://{}/app.bsky.feed.post/{}", self.repository, self.rkey)
+    }
+
+    pub fn app_uri(&self) -> String {
+        format!(
+            "https://bsky.app/profile/{}/post/{}",
+            self.repository, self.rkey
+        )
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Post {
@@ -27,9 +88,7 @@ impl Post {
 
     pub fn get_share_uri(&self) -> String {
         // https://bsky.app/profile/xijinpingoffical.bsky.social/post/3lelut5loqs2u
-        self.uri
-            .replacen("at://", "https://bsky.app/profile/", 1)
-            .replacen("/app.bsky.feed.post/", "/post/", 1)
+        PostLocator::from_url(&self.uri).unwrap().app_uri()
     }
 }
 

@@ -4,6 +4,7 @@ mod post;
 mod util;
 
 use crate::openai::openai_locate_sidetracker;
+use crate::post::PostLocator;
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
 use log::debug;
@@ -50,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Check { thread } => {
-            check(&thread).await?;
+            check(&PostLocator::from_url(&thread)?.at_uri()).await?;
         }
     }
     Ok(())
