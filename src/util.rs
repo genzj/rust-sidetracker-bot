@@ -1,5 +1,6 @@
 #[cfg(test)]
 use pretty_env_logger::env_logger;
+use std::path::Path;
 use tokio::io::AsyncWriteExt;
 
 pub fn find_and_parse_first_integer(input: String) -> Option<u32> {
@@ -32,7 +33,7 @@ pub fn ensure_tailing_slash(s: &str) -> String {
 }
 
 pub async fn dump_to_private_file<T>(
-    file_path: &str,
+    file_path: impl AsRef<Path>,
     data: &T,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -51,17 +52,24 @@ where
     Ok(())
 }
 
-pub async fn load_from_file<T>(file_path: &str) -> Result<T, Box<dyn std::error::Error>>
+pub async fn load_from_file<T>(file_path: impl AsRef<Path>) -> Result<T, Box<dyn std::error::Error>>
 where
     T: serde::de::DeserializeOwned,
 {
+    if !is_file_exists(file_path.as_ref()).await {
+        return Err("File not found".into());
+    }
     let session = tokio::fs::read(file_path).await?;
     let data: T = serde_json::from_reader(std::io::Cursor::new(session))?;
     Ok(data)
 }
 
-pub async fn is_file_exists(file_path: &str) -> bool {
+pub async fn is_file_exists(file_path: impl AsRef<Path>) -> bool {
     tokio::fs::metadata(file_path).await.is_ok()
+}
+
+pub async fn remove_file(file_path: impl AsRef<Path>) -> std::io::Result<()> {
+    tokio::fs::remove_file(file_path).await
 }
 
 #[cfg(test)]
@@ -76,6 +84,7 @@ pub fn init_test_logger() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn test_simple_number() {
@@ -142,11 +151,45 @@ mod tests {
     }
 
     #[test]
-    fn test_enensure_tailing_slash() {
+    fn test_ensure_tailing_slash() {
         let s = "https://example.com";
         assert_eq!(ensure_tailing_slash(&s), "https://example.com/");
 
         let s = "https://example.com/";
         assert_eq!(ensure_tailing_slash(&s), "https://example.com/");
+    }
+
+    #[tokio::test]
+    async fn test_dump_to_private_file_and_load() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let data = "test";
+        let file_path = "test.txt";
+        let file_path = tmp_dir.path().join(file_path);
+        dump_to_private_file(&file_path, &data).await.unwrap();
+        let content = tokio::fs::read_to_string(&file_path).await.unwrap();
+        assert_eq!(content, "\"test\"");
+
+        let loaded: String = load_from_file(&file_path).await.unwrap();
+        assert_eq!(loaded, data);
+
+        let metadata = tokio::fs::metadata(&file_path).await.unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        tmp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_file_exists_and_removal() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file_path = tmp_dir.path().join("test.txt");
+        tokio::fs::File::create(&file_path).await.unwrap();
+        assert!(is_file_exists(&file_path).await);
+
+        remove_file(&file_path).await.unwrap();
+        assert!(!is_file_exists(&file_path).await);
+
+        let file_path = tmp_dir.path().join("wrong-file.txt");
+        assert!(!is_file_exists(&file_path).await);
+
+        tmp_dir.close().unwrap();
     }
 }

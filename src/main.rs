@@ -2,6 +2,7 @@ mod api;
 mod openai;
 mod post;
 mod util;
+mod session;
 
 use crate::openai::openai_locate_sidetracker;
 use crate::post::PostLocator;
@@ -46,8 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
 
     let cli = Cli::parse();
-    debug!("cli: {:?}", cli);
     set_verbosity(&cli);
+    debug!("cli: {:?}", cli);
 
     match cli.command {
         Commands::Check { thread } => {

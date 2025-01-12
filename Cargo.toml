@@ -19,3 +19,4 @@ atrium-xrpc-client = "0.5.10"
 [dev-dependencies]
 mockito = "1.6.1"
 serde_json5 = "0.1.0"
+tempfile = "3.15.0"

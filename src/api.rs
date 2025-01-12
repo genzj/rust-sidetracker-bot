@@ -1,5 +1,5 @@
-use crate::util::{dump_to_private_file, is_file_exists, load_from_file};
-use atrium_api::agent::{store::MemorySessionStore, AtpAgent, Session};
+use crate::session::{ChainableSessionStore, ChainedSessionStore};
+use atrium_api::agent::AtpAgent;
 use atrium_api::app::bsky::feed::defs::ThreadViewPost;
 use atrium_api::app::bsky::feed::get_post_thread::{OutputThreadRefs, ParametersData};
 use atrium_api::types::Union;
@@ -9,21 +9,30 @@ use std::env;
 use std::error::Error;
 use std::ops::Deref;
 
-const SESSION_FILE: &str = "session.json";
-
-type BskyClient = AtpAgent<MemorySessionStore, ReqwestClient>;
+type BskyClient = AtpAgent<ChainedSessionStore, ReqwestClient>;
 
 fn new_client(base_url: &str) -> BskyClient {
-    AtpAgent::new(ReqwestClient::new(base_url), MemorySessionStore::default())
+    let session_store = ChainedSessionStore::new(vec![
+        ChainableSessionStore::local_file_default(),
+        ChainableSessionStore::memory(),
+    ]);
+    AtpAgent::new(ReqwestClient::new(base_url), session_store)
 }
 
-pub async fn must_create_agent() -> Result<BskyClient, Box<dyn std::error::Error>> {
+pub async fn must_create_agent() -> Result<BskyClient, Box<dyn Error>> {
     let client = new_client("https://bsky.social");
-    // TODO delegate to SessionStore
-    if is_file_exists(SESSION_FILE).await {
-        if let Ok(session) = load_from_file::<Session>(SESSION_FILE).await {
-            if let Ok(_) = client.resume_session(session).await {
+    
+    // client won't automatically resume session, even though ChainedSessionStore
+    // may have a persistent session in a file store
+    if let Some(session) = client.get_session().await {
+        info!("found saved session, try resuming it");
+        match client.resume_session(session).await {
+            Ok(..) => {
+                info!("session resumed successfully");
                 return Ok(client);
+            }
+            Err(err) => {
+                info!("failed to resume session: {}. logging in.", err);
             }
         }
     }
@@ -33,7 +42,6 @@ pub async fn must_create_agent() -> Result<BskyClient, Box<dyn std::error::Error
             env::var("BLUESKY_PASSWORD").unwrap(),
         )
         .await?;
-    let _ = dump_to_private_file(SESSION_FILE, &client.get_session().await.unwrap()).await;
     Ok(client)
 }
 
@@ -50,7 +58,7 @@ pub async fn get_post_thread(
             ParametersData {
                 depth: Some(1u16.try_into().unwrap()),
                 parent_height: Some(20.try_into().unwrap()),
-                uri: uri,
+                uri,
             }
             .into(),
         )
@@ -88,7 +96,10 @@ mod tests {
     async fn create_test_agent(server: &Server) -> BskyClient {
         let url = &server.url();
         let url = url.strip_suffix('/').unwrap_or(url);
-        let client = new_client(&url);
+        let session_store = ChainedSessionStore::new(vec![
+            ChainableSessionStore::memory(),
+        ]);
+        let client = AtpAgent::new(ReqwestClient::new(url), session_store);
         let resume = client.resume_session(create_test_session()).await;
         info!("resume: {:?}", resume);
         assert!(resume.is_ok());
