@@ -2,6 +2,7 @@ use atrium_api::app::bsky::embed::record::ViewRecordRefs;
 use atrium_api::app::bsky::feed::defs::{PostView, ThreadViewPost};
 use atrium_api::app::bsky::feed::defs::{PostViewEmbedRefs, ThreadViewPostParentRefs};
 use atrium_api::app::bsky::feed::post::RecordData;
+use atrium_api::types::string::Cid;
 use atrium_api::types::{TryFromUnknown, Union, Unknown};
 use log::debug;
 use std::collections::VecDeque;
@@ -69,6 +70,7 @@ impl PostLocator {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Post {
+    pub cid: Cid,
     pub handle: String,
     pub text: String,
     pub uri: String,
@@ -77,12 +79,14 @@ pub struct Post {
 
 impl Post {
     pub fn new(
+        cid: Cid,
         handle: impl Into<String>,
         text: impl Into<String>,
         uri: impl Into<String>,
         idx: u32,
     ) -> Self {
         Self {
+            cid,
             handle: handle.into(),
             text: text.into(),
             uri: uri.into(),
@@ -95,6 +99,12 @@ impl Post {
         PostLocator::from_url(&self.uri).unwrap().app_uri()
     }
 }
+
+// impl From<&Post> for atrium_api::com::atproto::repo::strong_ref::Main {
+//     fn from(val: &Post) -> Self {
+//         atrium_api::com::atproto::repo::strong_ref::Main{ data: atrium_api::com::atproto::repo::strong_ref::MainData { cid: (), uri: val.uri.clone() }, extra_data: todo!()}
+//     }
+// }
 
 pub fn parse_record_from_unknown(unknown: &Unknown) -> Option<RecordData> {
     if let Ok(record) = TryFromUnknown::try_from_unknown(unknown.clone()) {
@@ -133,6 +143,7 @@ pub fn parse_embedded(post: &Option<Union<PostViewEmbedRefs>>) -> Option<Post> {
         if let &Union::Refs(ViewRecordRefs::ViewRecord(ref box_record)) = &box_view.record {
             if let Some(record) = parse_record_from_unknown(&box_record.value) {
                 return Some(Post::new(
+                    box_record.cid.clone(),
                     box_record.author.handle.as_str(),
                     record.text,
                     box_record.uri.as_str(),
@@ -150,6 +161,7 @@ pub fn flatten_thread(thread_view_post: &ThreadViewPost) -> VecDeque<Post> {
     loop {
         let post = &cur.post;
         let post = Post::new(
+            post.cid.clone(),
             parse_post_author_handle(post),
             parse_post_text(post),
             parse_post_uri(post),
@@ -181,6 +193,8 @@ pub fn flatten_thread(thread_view_post: &ThreadViewPost) -> VecDeque<Post> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use atrium_api::app::bsky::feed::get_post_thread;
     use crate::post::tests::TestPost::{LeafPostThread, RootPostThread};
@@ -264,6 +278,10 @@ mod tests {
             embedded.uri,
             "at://did:plc:fkjudld5cg4ailkuyec65wvg/app.bsky.feed.post/3le73kidz7k2e",
         );
+        assert_eq!(
+            embedded.cid,
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopcfhsqwxynl2shc4cww3nnjly").unwrap()
+        );
         assert_eq!(embedded.idx, 0);
         assert_eq!(
             embedded.get_share_uri(),
@@ -288,8 +306,16 @@ mod tests {
             "at://did:plc:fkjudld5cg4ailkuyec65wvg/app.bsky.feed.post/3le73kidz7k2e"
         );
         assert_eq!(
+            flattened[0].cid,
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopcfhsqwxynl2shc4cww3nnjly").unwrap(),
+        );
+        assert_eq!(
             flattened[1].uri,
             "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3le7txyg4y22e"
+        );
+        assert_eq!(
+            flattened[1].cid,
+            Cid::from_str("bafyreihvg7p473yw6p6ddytthuqrmituuf22c3yo5z36iabm5iwpgvcxne").unwrap(),
         );
         assert_eq!(
             flattened.back().unwrap().uri,
