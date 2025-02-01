@@ -24,7 +24,7 @@ pub async fn openai_locate_sidetracker(thread: &VecDeque<Post>) -> Option<Post> 
     let messages = vec![
         ChatCompletionMessage {
             role: ChatCompletionMessageRole::System,
-            content: Some("论坛中的歪楼是指在论坛中的回复中有人故意跑题，提出与楼主本意看似相关而又无关的问题。下面是一个讨论中的若干回复，请你指出最有可能导致歪楼的回复。只需要回答对应回复前的数字序号，不做解释，不输出其他文字。如果所有回复都没有跑题，输出数字0。".to_string()),
+            content: Some(include_str!("../data/prompt.txt").to_string()),
             ..Default::default()
         },
         ChatCompletionMessage {
