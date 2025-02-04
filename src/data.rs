@@ -1,9 +1,9 @@
-use ellipse::Ellipse;
 use atrium_api::{
     app::bsky::feed::post::{Record, RecordData, ReplyRef, ReplyRefData},
     com::atproto::repo::strong_ref,
     types::string::Datetime,
 };
+use ellipse::Ellipse;
 
 use crate::post::Post;
 
@@ -17,22 +17,12 @@ pub(crate) struct SideTracker {
     entrance: Post,
 }
 
-pub(crate) type CheckResult = Option<SideTracker>;
-
 impl SideTracker {
-    pub(crate) fn new(post: &Post, root: &Post, entrance: &Post) -> SideTracker {
+    pub(crate) fn new(post: Option<Post>, root: Post, entrance: Post) -> SideTracker {
         SideTracker {
-            post: Some(post.clone()),
-            root: root.clone(),
-            entrance: entrance.clone(),
-        }
-    }
-
-    pub(crate) fn not_found(root: &Post, entrance: &Post) -> SideTracker {
-        SideTracker {
-            post: None,
-            root: root.clone(),
-            entrance: entrance.clone(),
+            post,
+            root,
+            entrance,
         }
     }
 
@@ -58,7 +48,7 @@ impl SideTracker {
             langs: None,
             reply: Some(ReplyRef::from(Into::<ReplyRefData>::into(self))),
             tags: None,
-            text: text,
+            text,
             embed: None,
         })
     }
@@ -85,5 +75,61 @@ impl From<&SideTracker> for ReplyRefData {
             parent: (&value.entrance).into(),
             root: (&value.root).into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use atrium_api::types::string::Cid;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_side_tracker() {
+        let root = Post::new(
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopaaaaawcccccsxxxxxw3nnjly").unwrap(),
+            "handle1".to_string(),
+            "text_root".to_string(),
+            "at://did:plc:test/app.bsky.feed.post/root".to_string(),
+            1,
+        );
+        let entrance = Post::new(
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaasyyyyyw3nnjly").unwrap(),
+            "handle2".to_string(),
+            "text_entrance".to_string(),
+            "at://did:plc:test/app.bsky.feed.post/entrance".to_string(),
+            12,
+        );
+        let post = Post::new(
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaaszzzzzw3nnjly").unwrap(),
+            "handle3".to_string(),
+            "text_post".to_string(),
+            "at://did:plc:test/app.bsky.feed.post/post".to_string(),
+            6,
+        );
+        let side_tracker = SideTracker::new(Some(post), root, entrance);
+        let reply = side_tracker.build_reply();
+        assert_eq!(reply.text, "最有可能的歪楼犯： @handle3\n罪证： text_post\n现场还原： https://bsky.app/profile/did:plc:test/post/post");
+    }
+
+    #[test]
+    fn test_empty_side_tracker() {
+        let root = Post::new(
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopaaaaawcccccsxxxxxw3nnjly").unwrap(),
+            "handle".to_string(),
+            "text".to_string(),
+            "at://did:plc:test/app.bsky.feed.post/root".to_string(),
+            1,
+        );
+        let entrance = Post::new(
+            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaasyyyyyw3nnjly").unwrap(),
+            "handle".to_string(),
+            "text".to_string(),
+            "at://did:plc:test/app.bsky.feed.post/entrance".to_string(),
+            12,
+        );
+        let side_tracker = SideTracker::new(None, root, entrance);
+        let reply = side_tracker.build_reply();
+        assert_eq!(reply.text, "太好了，没有找到歪楼犯");
     }
 }

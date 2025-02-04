@@ -5,7 +5,9 @@ use atrium_api::app::bsky::feed::post::RecordData;
 use atrium_api::types::string::Cid;
 use atrium_api::types::{TryFromUnknown, Union, Unknown};
 use log::debug;
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use url::Url;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -95,16 +97,9 @@ impl Post {
     }
 
     pub fn get_share_uri(&self) -> String {
-        // https://bsky.app/profile/xijinpingoffical.bsky.social/post/3lelut5loqs2u
         PostLocator::from_url(&self.uri).unwrap().app_uri()
     }
 }
-
-// impl From<&Post> for atrium_api::com::atproto::repo::strong_ref::Main {
-//     fn from(val: &Post) -> Self {
-//         atrium_api::com::atproto::repo::strong_ref::Main{ data: atrium_api::com::atproto::repo::strong_ref::MainData { cid: (), uri: val.uri.clone() }, extra_data: todo!()}
-//     }
-// }
 
 pub fn parse_record_from_unknown(unknown: &Unknown) -> Option<RecordData> {
     if let Ok(record) = TryFromUnknown::try_from_unknown(unknown.clone()) {
@@ -155,40 +150,71 @@ pub fn parse_embedded(post: &Option<Union<PostViewEmbedRefs>>) -> Option<Post> {
     None
 }
 
-pub fn flatten_thread(thread_view_post: &ThreadViewPost) -> VecDeque<Post> {
-    let mut result = VecDeque::with_capacity(10);
-    let mut cur: &ThreadViewPost = thread_view_post;
-    loop {
-        let post = &cur.post;
-        let post = Post::new(
-            post.cid.clone(),
-            parse_post_author_handle(post),
-            parse_post_text(post),
-            parse_post_uri(post),
-            0,
-        );
-        // ignore non text posts
-        if post.text.len() > 0 {
-            result.push_front(post)
-        }
-        if cur.parent.is_none() {
-            if let Some(post) = parse_embedded(&cur.post.embed) {
-                result.push_front(post);
-            }
-            break;
-        } else if let Some(k) = get_parent(cur) {
-            cur = k;
-        }
-    }
+pub(crate) struct FlattenedThread {
+    /// the root of this thread. Note: it's not necessarily the first post of the posts queue when
+    /// the root post contains an embedded post
+    pub root: Rc<RefCell<Post>>,
+    /// the leaf post that leads to this thread.
+    pub entrance: Rc<RefCell<Post>>,
+    /// the posts in this thread, from the earliest to the latest
+    pub posts: VecDeque<Rc<RefCell<Post>>>,
+}
 
-    // renumber the posts
-    let mut idx: u32 = 1;
-    for p in result.iter_mut() {
-        p.idx = idx;
-        debug!("{:?} {}", p, p.get_share_uri());
-        idx += 1;
+impl From<&ThreadViewPost> for FlattenedThread {
+    fn from(value: &ThreadViewPost) -> Self {
+        let mut result = VecDeque::with_capacity(10);
+        let mut cur: &ThreadViewPost = value;
+        let mut entrance: Option<Rc<RefCell<Post>>> = None;
+        let root: Option<Rc<RefCell<Post>>>;
+        loop {
+            let post = &cur.post;
+            let post = Post::new(
+                post.cid.clone(),
+                parse_post_author_handle(post),
+                parse_post_text(post),
+                parse_post_uri(post),
+                0,
+            );
+            // ignore non text posts
+            if post.text.len() > 0 {
+                result.push_front(Rc::new(RefCell::from(post)));
+            }
+            entrance.get_or_insert_with(|| result.front().unwrap().clone());
+            if cur.parent.is_none() {
+                root = result.front().map(|p| p.clone());
+                if let Some(post) = parse_embedded(&cur.post.embed) {
+                    result.push_front(Rc::new(RefCell::from(post)));
+                }
+                break;
+            } else if let Some(k) = get_parent(cur) {
+                cur = k;
+            }
+        }
+
+        // renumber the posts
+        let mut idx: u32 = 1;
+        for p in result.iter_mut() {
+            p.borrow_mut().idx = idx;
+            debug!("{:?} {}", p, p.borrow().get_share_uri());
+            idx += 1;
+        }
+
+        Self {
+            root: root.unwrap(),
+            entrance: entrance.unwrap(),
+            posts: result,
+        }
     }
-    result
+}
+
+impl From<&FlattenedThread> for VecDeque<Post> {
+    fn from(value: &FlattenedThread) -> Self {
+        VecDeque::<Post>::from_iter(
+            value.posts
+                .iter()
+                .map(|p| p.borrow().clone()),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -196,8 +222,8 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
-    use atrium_api::app::bsky::feed::get_post_thread;
     use crate::post::tests::TestPost::{LeafPostThread, RootPostThread};
+    use atrium_api::app::bsky::feed::get_post_thread;
 
     enum TestPost {
         LeafPostThread,
@@ -297,29 +323,25 @@ mod tests {
     }
 
     #[test]
-    fn test_flatten_thread() {
+    fn test_flattened_thread() {
         let thread = load_test_thread(LeafPostThread);
-        let flattened = flatten_thread(&thread);
-        assert_eq!(flattened.len(), 13);
+        let flattened = FlattenedThread::from(&thread);
+        assert_eq!(flattened.posts.len(), 13);
         assert_eq!(
-            flattened[0].uri,
-            "at://did:plc:fkjudld5cg4ailkuyec65wvg/app.bsky.feed.post/3le73kidz7k2e"
-        );
-        assert_eq!(
-            flattened[0].cid,
-            Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopcfhsqwxynl2shc4cww3nnjly").unwrap(),
-        );
-        assert_eq!(
-            flattened[1].uri,
+            flattened.root.borrow().uri,
             "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3le7txyg4y22e"
         );
         assert_eq!(
-            flattened[1].cid,
-            Cid::from_str("bafyreihvg7p473yw6p6ddytthuqrmituuf22c3yo5z36iabm5iwpgvcxne").unwrap(),
+            flattened.root.borrow().idx,
+            2
         );
         assert_eq!(
-            flattened.back().unwrap().uri,
+            flattened.entrance.borrow().uri,
             "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3leb44umzuc2l"
+        );
+        assert_eq!(
+            flattened.entrance.borrow().idx,
+            13
         );
     }
 }

@@ -21,7 +21,7 @@ fn new_client(base_url: &str) -> BskyClient {
 
 pub async fn must_create_agent() -> Result<BskyClient, Box<dyn Error>> {
     let client = new_client("https://bsky.social");
-    
+
     // client won't automatically resume session, even though ChainedSessionStore
     // may have a persistent session in a file store
     if let Some(session) = client.get_session().await {
@@ -60,7 +60,7 @@ pub async fn get_post_thread(
                 parent_height: Some(20.try_into().unwrap()),
                 uri,
             }
-            .into(),
+                .into(),
         )
         .await?;
 

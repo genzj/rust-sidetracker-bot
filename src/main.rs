@@ -5,12 +5,13 @@ mod post;
 mod util;
 mod session;
 
+use crate::data::SideTracker;
 use crate::openai::openai_locate_sidetracker;
 use crate::post::PostLocator;
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
-use ellipse::Ellipse;
 use log::debug;
+use std::collections::VecDeque;
 use std::error::Error;
 
 #[derive(Parser, Debug)]
@@ -44,7 +45,7 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     pretty_env_logger::init();
 
@@ -65,24 +66,18 @@ async fn check(thread: &str) -> Result<(), Box<dyn Error>> {
     let res = api::get_post_thread(
         agent,
         thread.to_string(),
-        // "at://nghua.me/app.bsky.feed.post/3leb44umzuc2l".to_string(),
-        // "at://demishuyan.bsky.social/app.bsky.feed.post/3lem7oosaz22t".to_string(),
-        // "https://bsky.app/profile/nghua.me/post/3lf3uy5rvwc25".to_string(),
     )
         .await?;
 
-    let thread = post::flatten_thread(&res);
+    let thread = post::FlattenedThread::from(&res);
+    let posts = VecDeque::from(&thread);
+    let result = SideTracker::new(
+        openai_locate_sidetracker(&posts).await,
+        thread.root.borrow().clone(),
+        thread.entrance.borrow().clone(),
+    );
 
-    if let Some(p) = openai_locate_sidetracker(&thread).await {
-        println!(
-            "最有可能的歪楼犯： @{}\n罪证：{}\n现场还原： {}",
-            p.handle,
-            p.text.as_str().truncate_ellipse(20),
-            p.get_share_uri()
-        );
-    } else {
-        println!("太好了，没有找到歪楼犯");
-    }
+    println!("{:?}", result.build_reply());
     Ok(())
 }
 

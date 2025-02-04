@@ -131,7 +131,7 @@ mod tests {
             "handle": "HANDLE_NAME",
             "refreshJwt": "test-saved-refresh-jwt"
         }"#
-        .replace("HANDLE_NAME", handle);
+            .replace("HANDLE_NAME", handle);
         serde_json::from_str::<Session>(session.as_str()).unwrap()
     }
 
