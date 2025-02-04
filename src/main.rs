@@ -1,4 +1,5 @@
 mod api;
+mod data;
 mod openai;
 mod post;
 mod util;
@@ -8,6 +9,7 @@ use crate::openai::openai_locate_sidetracker;
 use crate::post::PostLocator;
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
+use ellipse::Ellipse;
 use log::debug;
 use std::error::Error;
 
@@ -73,9 +75,9 @@ async fn check(thread: &str) -> Result<(), Box<dyn Error>> {
 
     if let Some(p) = openai_locate_sidetracker(&thread).await {
         println!(
-            "最有可能的歪楼犯：{}\n罪证：{}\n现场还原：{}",
+            "最有可能的歪楼犯： @{}\n罪证：{}\n现场还原： {}",
             p.handle,
-            p.text,
+            p.text.as_str().truncate_ellipse(20),
             p.get_share_uri()
         );
     } else {
