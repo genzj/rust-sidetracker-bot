@@ -71,6 +71,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             debug!("posting reply: {:?}", reply);
             let result = api::create_record(agent, reply).await?;
             debug!("reply result: {:?}", result);
+            let locator = post::PostLocator::from_url(&result.uri);
+            debug!("reply result locator: {:?}", locator);
+            if locator.is_err() {
+                return Err(Box::from(locator.unwrap_err()));
+            }
+            println!("reply published: {}", locator.unwrap().app_uri());
         }
     }
     Ok(())

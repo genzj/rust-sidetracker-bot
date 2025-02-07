@@ -1,3 +1,5 @@
+use atrium_api::app::bsky::embed;
+use atrium_api::app::bsky::feed::post::RecordEmbedRefs;
 use atrium_api::app::bsky::richtext::facet;
 use atrium_api::app::bsky::richtext::facet::{
     ByteSlice, ByteSliceData, MainFeaturesItem, Mention, MentionData,
@@ -34,6 +36,7 @@ impl SideTracker {
 
     pub(crate) fn build_reply(&self) -> RecordData {
         let mut facets: Vec<facet::Main> = Vec::new();
+        let mut embed = None;
         let text = if let Some(ref p) = self.post {
             let mut text = "最有可能的歪楼犯：".to_string();
             {
@@ -71,6 +74,8 @@ impl SideTracker {
                     }),
                 }));
             }
+
+            embed = Some(Union::Refs(p.into()));
             text
         } else {
             "太好了，没有找到歪楼犯".to_string()
@@ -88,7 +93,7 @@ impl SideTracker {
             reply: Some(ReplyRef::from(Into::<ReplyRefData>::into(self))),
             tags: None,
             text,
-            embed: None,
+            embed,
         }
     }
 }
@@ -105,6 +110,15 @@ impl From<&Post> for strong_ref::MainData {
 impl From<&Post> for strong_ref::Main {
     fn from(value: &Post) -> Self {
         strong_ref::Main::from(strong_ref::MainData::from(value))
+    }
+}
+
+impl From<&Post> for RecordEmbedRefs {
+    fn from(value: &Post) -> Self {
+        let record = strong_ref::Main::from(value);
+        Self::AppBskyEmbedRecordMain(Box::from(embed::record::Main::from(
+            embed::record::MainData { record },
+        )))
     }
 }
 
