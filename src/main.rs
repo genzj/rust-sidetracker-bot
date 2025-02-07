@@ -2,12 +2,13 @@ mod api;
 mod data;
 mod openai;
 mod post;
-mod util;
 mod session;
+mod util;
 
 use crate::data::SideTracker;
 use crate::openai::openai_locate_sidetracker;
 use crate::post::PostLocator;
+use atrium_api::app::bsky::feed::post::RecordData;
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
 use log::debug;
@@ -18,18 +19,23 @@ use std::error::Error;
 #[command(version, about, long_about = None)]
 #[command(next_line_help = true)]
 struct Cli {
-    #[arg(short, long, action = clap::ArgAction::Count, default_value_t = 3)]
+    #[arg(short, long, action = clap::ArgAction::Count, default_value_t = 0, global = true)]
     /// verbosity of logging. This option can be repeated.
+    /// 0 - (Default) no overriding, use env RUST_LOG or pretty_env_logger's default level
     /// 1 - Error,
     /// 2 - Warn,
-    /// 3 - Info (default),
+    /// 3 - Info,
     /// 4 - Debug,
     /// 5 and more - Trace
     verbose: u8,
 
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     /// disable all logs.
     quiet: bool,
+
+    #[arg(short = 'n', long, global = true, env = "DRY_RUN")]
+    /// disable all post creation features.
+    dry_run: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -53,21 +59,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     set_verbosity(&cli);
     debug!("cli: {:?}", cli);
 
-    match cli.command {
-        Commands::Check { thread } => {
-            check(&PostLocator::from_url(&thread)?.at_uri()).await?;
+    let reply = match cli.command {
+        Commands::Check { thread } => check(&PostLocator::from_url(&thread)?.at_uri()).await?,
+    };
+    if let Some(reply) = reply {
+        if cli.dry_run {
+            debug!("dry run: not posting");
+            println!("{}", serde_json::to_string_pretty(&reply).unwrap());
+        } else {
+            let agent = api::must_create_agent().await?;
+            debug!("posting reply: {:?}", reply);
+            let result = api::create_record(agent, reply).await?;
+            debug!("reply result: {:?}", result);
         }
     }
     Ok(())
 }
 
-async fn check(thread: &str) -> Result<(), Box<dyn Error>> {
+async fn check(thread: &str) -> Result<Option<RecordData>, Box<dyn Error>> {
     let agent = api::must_create_agent().await?;
-    let res = api::get_post_thread(
-        agent,
-        thread.to_string(),
-    )
-        .await?;
+    let res = api::get_post_thread(agent, thread.to_string()).await?;
 
     let thread = post::FlattenedThread::from(&res);
     let posts = VecDeque::from(&thread);
@@ -77,19 +88,21 @@ async fn check(thread: &str) -> Result<(), Box<dyn Error>> {
         thread.entrance.borrow().clone(),
     );
 
-    println!("{:?}", result.build_reply());
-    Ok(())
+    debug!("side tracking result {:?}", result);
+    Ok(Some(result.build_reply()))
 }
 
 fn set_verbosity(cli: &Cli) {
     let log_level = match (cli.quiet, cli.verbose) {
-        (true, _) => log::LevelFilter::Off,
-        (false, 1) => log::LevelFilter::Error,
-        (false, 2) => log::LevelFilter::Warn,
-        (false, 0 | 3) => log::LevelFilter::Info,
-        (false, 4) => log::LevelFilter::Debug,
-        (false, _) => log::LevelFilter::Trace,
+        (true, _) => Some(log::LevelFilter::Off),
+        // keep default value, which can be set by env RUST_LOG
+        (false, 0) => None,
+        (false, 1) => Some(log::LevelFilter::Error),
+        (false, 2) => Some(log::LevelFilter::Warn),
+        (false, 3) => Some(log::LevelFilter::Info),
+        (false, 4) => Some(log::LevelFilter::Debug),
+        (false, _) => Some(log::LevelFilter::Trace),
     };
 
-    log::set_max_level(log_level);
+    log_level.map(log::set_max_level);
 }

@@ -1,0 +1,10 @@
+{
+  "commit": {
+    "cid": "bafyreihgqs2cdnyhcneubwn4wmi5xxxxxxtyyyyyk7zzzzzmu2xxxxxsyi",
+    "rev": "3555555555555"
+  },
+  "$type": "com.atproto.repo.applyWrites#createResult",
+  "cid": "bafyreib2h2gzenhdoeobww2xxxxxiyyyyyzzzzzzrxxxxxwyyyyyssenkm",
+  "uri": "at://did:plc:test-plc/app.bsky.feed.post/3555555555555",
+  "validationStatus": "valid"
+}

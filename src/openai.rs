@@ -67,7 +67,7 @@ pub async fn openai_locate_sidetracker(thread: &VecDeque<Post>) -> Option<Post> 
 mod tests {
     use std::str::FromStr;
 
-    use atrium_api::types::string::Cid;
+    use atrium_api::types::string::{Cid, Did};
 
     use super::*;
     use crate::post::Post;
@@ -77,6 +77,7 @@ mod tests {
         let mut thread = VecDeque::new();
         thread.push_back(Post {
             cid: Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopaaaaawcccccsxxxxxw3nnjly").unwrap(),
+            did: Did::from_str("did:plc:fkjudld5cgxxxxxxxxxxxxxx").unwrap(),
             handle: "user-1".to_string(),
             idx: 1,
             text: "Hello".to_string(),
@@ -84,6 +85,7 @@ mod tests {
         });
         thread.push_back(Post {
             cid: Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaasyyyyyw3nnjly").unwrap(),
+            did: Did::from_str("did:plc:fkjudld5cgyyyyyyyyyyyyyy").unwrap(),
             handle: "user-2".to_string(),
             idx: 2,
             text: "World".to_string(),

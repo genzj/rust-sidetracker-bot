@@ -1,5 +1,11 @@
+use atrium_api::app::bsky::richtext::facet;
+use atrium_api::app::bsky::richtext::facet::{
+    ByteSlice, ByteSliceData, MainFeaturesItem, Mention, MentionData,
+};
+use atrium_api::types::string::Language;
+use atrium_api::types::Union;
 use atrium_api::{
-    app::bsky::feed::post::{Record, RecordData, ReplyRef, ReplyRefData},
+    app::bsky::feed::post::{RecordData, ReplyRef, ReplyRefData},
     com::atproto::repo::strong_ref,
     types::string::Datetime,
 };
@@ -26,31 +32,64 @@ impl SideTracker {
         }
     }
 
-    pub(crate) fn build_reply(&self) -> Record {
+    pub(crate) fn build_reply(&self) -> RecordData {
+        let mut facets: Vec<facet::Main> = Vec::new();
         let text = if let Some(ref p) = self.post {
-            format!(
-                "最有可能的歪楼犯： @{}\n罪证： {}\n现场还原： {}",
-                p.handle,
-                p.text.as_str().truncate_ellipse(20),
-                p.get_share_uri()
-            )
+            let mut text = "最有可能的歪楼犯：".to_string();
+            {
+                let mention_start = text.len();
+                text.push_str("@");
+                text.push_str(&p.handle);
+                let mention_end = text.len();
+                text.push_str("\n");
+                let mention = MainFeaturesItem::Mention(Box::from(Mention::from(MentionData {
+                    did: p.did.clone(),
+                })));
+                facets.push(facet::Main::from(facet::MainData {
+                    features: vec![Union::Refs(mention)],
+                    index: ByteSlice::from(ByteSliceData {
+                        byte_start: mention_start,
+                        byte_end: mention_end,
+                    }),
+                }));
+            }
+
+            text.push_str(format!("罪证：{}\n", p.text.as_str().truncate_ellipse(20)).as_str());
+
+            {
+                let link_start = text.len();
+                text.push_str(p.get_share_uri().as_str());
+                let link_end = text.len();
+                let link = MainFeaturesItem::Link(Box::from(facet::Link::from(facet::LinkData {
+                    uri: p.get_share_uri(),
+                })));
+                facets.push(facet::Main::from(facet::MainData {
+                    features: vec![Union::Refs(link)],
+                    index: ByteSlice::from(ByteSliceData {
+                        byte_start: link_start,
+                        byte_end: link_end,
+                    }),
+                }));
+            }
+            text
         } else {
             "太好了，没有找到歪楼犯".to_string()
         };
 
-        // TODO handle post link and user handler.
-        //   ref: https://docs.bsky.app/docs/advanced-guides/posts#mentions-and-links
-        Record::from(RecordData {
+        RecordData {
             created_at: Datetime::now(),
             entities: None,
-            facets: None,
+            facets: if facets.len() > 0 { Some(facets) } else { None },
             labels: None,
-            langs: None,
+            langs: Some(vec![
+                Language::new("zh-CN".to_string()).unwrap(),
+                Language::new("en-US".to_string()).unwrap(),
+            ]),
             reply: Some(ReplyRef::from(Into::<ReplyRefData>::into(self))),
             tags: None,
             text,
             embed: None,
-        })
+        }
     }
 }
 
@@ -81,13 +120,14 @@ impl From<&SideTracker> for ReplyRefData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atrium_api::types::string::Cid;
+    use atrium_api::types::string::{Cid, Did};
     use std::str::FromStr;
 
     #[test]
     fn test_side_tracker() {
         let root = Post::new(
             Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopaaaaawcccccsxxxxxw3nnjly").unwrap(),
+            Did::from_str("did:plc:fkjudld5cgxxxxxxxxxxxxxx").unwrap(),
             "handle1".to_string(),
             "text_root".to_string(),
             "at://did:plc:test/app.bsky.feed.post/root".to_string(),
@@ -95,6 +135,7 @@ mod tests {
         );
         let entrance = Post::new(
             Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaasyyyyyw3nnjly").unwrap(),
+            Did::from_str("did:plc:fkjudld5cgyyyyyyyyyyyyyy").unwrap(),
             "handle2".to_string(),
             "text_entrance".to_string(),
             "at://did:plc:test/app.bsky.feed.post/entrance".to_string(),
@@ -102,20 +143,28 @@ mod tests {
         );
         let post = Post::new(
             Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaaszzzzzw3nnjly").unwrap(),
+            Did::from_str("did:plc:fkjudld5cgzzzzzzzzzzzzzz").unwrap(),
             "handle3".to_string(),
-            "text_post".to_string(),
+            "text post but very very long".to_string(),
             "at://did:plc:test/app.bsky.feed.post/post".to_string(),
             6,
         );
         let side_tracker = SideTracker::new(Some(post), root, entrance);
         let reply = side_tracker.build_reply();
-        assert_eq!(reply.text, "最有可能的歪楼犯： @handle3\n罪证： text_post\n现场还原： https://bsky.app/profile/did:plc:test/post/post");
+        assert_eq!(reply.text, "最有可能的歪楼犯：@handle3\n罪证：text post but very v...\nhttps://bsky.app/profile/did:plc:test/post/post");
+        let mention = reply.facets.as_ref().unwrap().get(0).unwrap();
+        assert_eq!(mention.index.byte_start, 27);
+        assert_eq!(mention.index.byte_end, 35);
+        let link = reply.facets.as_ref().unwrap().get(1).unwrap();
+        assert_eq!(link.index.byte_start, 69);
+        assert_eq!(link.index.byte_end, 116);
     }
 
     #[test]
     fn test_empty_side_tracker() {
         let root = Post::new(
             Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopaaaaawcccccsxxxxxw3nnjly").unwrap(),
+            Did::from_str("did:plc:fkjudld5cgxxxxxxxxxxxxxx").unwrap(),
             "handle".to_string(),
             "text".to_string(),
             "at://did:plc:test/app.bsky.feed.post/root".to_string(),
@@ -123,6 +172,7 @@ mod tests {
         );
         let entrance = Post::new(
             Cid::from_str("bafyreihvgtbjqmyo2ocpfic3rgjtvepbopbbbbbwaaaaasyyyyyw3nnjly").unwrap(),
+            Did::from_str("did:plc:fkjudld5cgyyyyyyyyyyyyyy").unwrap(),
             "handle".to_string(),
             "text".to_string(),
             "at://did:plc:test/app.bsky.feed.post/entrance".to_string(),

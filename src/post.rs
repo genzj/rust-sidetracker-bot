@@ -2,7 +2,7 @@ use atrium_api::app::bsky::embed::record::ViewRecordRefs;
 use atrium_api::app::bsky::feed::defs::{PostView, ThreadViewPost};
 use atrium_api::app::bsky::feed::defs::{PostViewEmbedRefs, ThreadViewPostParentRefs};
 use atrium_api::app::bsky::feed::post::RecordData;
-use atrium_api::types::string::Cid;
+use atrium_api::types::string::{Cid, Did};
 use atrium_api::types::{TryFromUnknown, Union, Unknown};
 use log::debug;
 use std::cell::RefCell;
@@ -73,6 +73,7 @@ impl PostLocator {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Post {
     pub cid: Cid,
+    pub did: Did,
     pub handle: String,
     pub text: String,
     pub uri: String,
@@ -82,6 +83,7 @@ pub struct Post {
 impl Post {
     pub fn new(
         cid: Cid,
+        did: Did,
         handle: impl Into<String>,
         text: impl Into<String>,
         uri: impl Into<String>,
@@ -90,6 +92,7 @@ impl Post {
         Self {
             cid,
             handle: handle.into(),
+            did,
             text: text.into(),
             uri: uri.into(),
             idx,
@@ -121,10 +124,6 @@ pub fn parse_post_uri(post: &PostView) -> String {
     post.uri.clone()
 }
 
-pub fn parse_post_author_handle(post: &PostView) -> String {
-    post.author.handle.to_string()
-}
-
 pub fn get_parent<'a>(thread: &'a ThreadViewPost) -> Option<&'a ThreadViewPost> {
     if let Some(Union::Refs(ThreadViewPostParentRefs::ThreadViewPost(k))) = &thread.parent {
         Some(k)
@@ -139,6 +138,7 @@ pub fn parse_embedded(post: &Option<Union<PostViewEmbedRefs>>) -> Option<Post> {
             if let Some(record) = parse_record_from_unknown(&box_record.value) {
                 return Some(Post::new(
                     box_record.cid.clone(),
+                    box_record.author.did.clone(),
                     box_record.author.handle.as_str(),
                     record.text,
                     box_record.uri.as_str(),
@@ -170,7 +170,8 @@ impl From<&ThreadViewPost> for FlattenedThread {
             let post = &cur.post;
             let post = Post::new(
                 post.cid.clone(),
-                parse_post_author_handle(post),
+                post.author.did.clone(),
+                post.author.handle.to_string(),
                 parse_post_text(post),
                 parse_post_uri(post),
                 0,
@@ -261,13 +262,6 @@ mod tests {
             uri,
             "at://did:plc:xn5b64qpivpq55wumwf6wdjg/app.bsky.feed.post/3leb44umzuc2l"
         );
-    }
-
-    #[test]
-    fn test_parse_post_author_handle() {
-        let thread = load_test_thread(LeafPostThread);
-        let handle = parse_post_author_handle(&thread.post);
-        assert_eq!(handle, "nghua.me");
     }
 
     #[test]

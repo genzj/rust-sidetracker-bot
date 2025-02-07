@@ -2,7 +2,13 @@ use crate::session::{ChainableSessionStore, ChainedSessionStore};
 use atrium_api::agent::AtpAgent;
 use atrium_api::app::bsky::feed::defs::ThreadViewPost;
 use atrium_api::app::bsky::feed::get_post_thread::{OutputThreadRefs, ParametersData};
-use atrium_api::types::Union;
+use atrium_api::app::bsky::feed::post;
+use atrium_api::com::atproto::repo::create_record;
+use atrium_api::com::atproto::repo::create_record::InputData;
+use atrium_api::record::KnownRecord;
+use atrium_api::types::string::{AtIdentifier, Nsid};
+use atrium_api::types::TryIntoUnknown;
+use atrium_api::types::{Object, Union};
 use atrium_xrpc_client::reqwest::ReqwestClient;
 use log::{info, trace};
 use std::env;
@@ -60,7 +66,7 @@ pub async fn get_post_thread(
                 parent_height: Some(20.try_into().unwrap()),
                 uri,
             }
-                .into(),
+            .into(),
         )
         .await?;
 
@@ -76,12 +82,31 @@ pub async fn get_post_thread(
     Err("not found".into())
 }
 
+pub async fn create_record(
+    client: BskyClient,
+    post: post::RecordData,
+) -> Result<create_record::Output, Box<dyn Error>> {
+    let repo = client.get_session().await.as_ref().unwrap().did.clone();
+    let input = Object::from(InputData {
+        collection: Nsid::new("app.bsky.feed.post".to_string())?,
+        record: TryIntoUnknown::try_into_unknown(KnownRecord::from(post)).unwrap(),
+        repo: AtIdentifier::Did(repo),
+        rkey: None,
+        swap_commit: None,
+        validate: None,
+    });
+    Ok(client.api.com.atproto.repo.create_record(input).await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use atrium_api::agent::Session;
+    use atrium_api::types::string::Datetime;
+    use log::debug;
     use mockito::Matcher::PartialJsonString;
     use mockito::{Matcher, Server};
+    use std::str::FromStr;
 
     fn create_test_session() -> Session {
         let session = r#"{
@@ -96,9 +121,7 @@ mod tests {
     async fn create_test_agent(server: &Server) -> BskyClient {
         let url = &server.url();
         let url = url.strip_suffix('/').unwrap_or(url);
-        let session_store = ChainedSessionStore::new(vec![
-            ChainableSessionStore::memory(),
-        ]);
+        let session_store = ChainedSessionStore::new(vec![ChainableSessionStore::memory()]);
         let client = AtpAgent::new(ReqwestClient::new(url), session_store);
         let resume = client.resume_session(create_test_session()).await;
         info!("resume: {:?}", resume);
@@ -203,6 +226,27 @@ mod tests {
         server
     }
 
+    async fn mock_create_record(server: &mut Server) -> &mut Server {
+        server.mock("POST", "/xrpc/com.atproto.repo.createRecord")
+            .match_header(
+                "authorization",
+                Matcher::AnyOf(vec![
+                    Matcher::Exact("Bearer test-logged-access-jwt".to_string()),
+                    Matcher::Exact("Bearer test-saved-access-jwt".to_string()),
+                    Matcher::Exact("Bearer test-refreshed-access-jwt".to_string()),
+                ]),
+            )
+            .match_body(PartialJsonString(
+                r#"{"collection":"app.bsky.feed.post","repo":"did:plc:test_did","record":{"$type":"app.bsky.feed.post"}}"#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body_from_file("test_data/create_record.json5")
+            .create_async()
+            .await;
+        server
+    }
+
     #[tokio::test]
     async fn test_get_post_thread() {
         let mut server = Server::new_async().await;
@@ -227,5 +271,34 @@ mod tests {
         mock_create_session(&mut server).await;
         mock_refresh_session(&mut server).await;
         mock_get_post_thread(&mut server).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_record() {
+        let mut server = Server::new_async().await;
+        mock_get_session(&mut server).await;
+        mock_create_record(&mut server).await;
+        let agent = create_test_agent(&server).await;
+        let res = create_record(
+            agent,
+            post::RecordData {
+                created_at: Datetime::from_str("2024-11-08T20:01:00.000Z").unwrap(),
+                text: "test post".to_string(),
+                langs: None,
+                reply: None,
+                embed: None,
+                entities: None,
+                facets: None,
+                tags: None,
+                labels: None,
+            },
+        )
+        .await;
+        debug!("create_record: {:?}", res);
+        assert!(res.is_ok());
+        // assert_eq!(
+        //     res.unwrap().uri,
+        //     "at://did:XXXXXXXXXXXXXXXXXXXXXXXXXXXX/app.bsky.feed.post/3leb44umzuc2l"
+        // );
     }
 }
