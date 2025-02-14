@@ -63,7 +63,7 @@ pub async fn get_post_thread(
         .get_post_thread(
             ParametersData {
                 depth: Some(1u16.try_into().unwrap()),
-                parent_height: Some(20.try_into().unwrap()),
+                parent_height: Some(200.try_into().unwrap()),  // TODO make height configurable
                 uri,
             }
             .into(),
