@@ -1,0 +1,37 @@
+{
+  "list": {
+    "uri": "at://did:plc:67xaifiwdhqbnd6fjhj5wbos/app.bsky.graph.list/3lhzb5jzor52n",
+    "cid": "bafyreiexrprubltyrgec6yvqhgaedna2rvylryifv2xannufjnagaizozq",
+    "name": "Allowed Users",
+    "purpose": "app.bsky.graph.defs#curatelist",
+    "listItemCount": 1,
+    "indexedAt": "2025-02-12T22:51:09.159Z",
+    "labels": [],
+    "creator": {
+      "did": "did:plc:67xaifiwdhqbnd6fjhj5wbos",
+      "handle": "wlbot.genzj.info",
+      "displayName": "歪楼小警察",
+      "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:67xaifiwdhqbnd6fjhj5wbos/bafkreicuanfujbmqiqwgp63b54e5qgiqyigi3fhpenlng7kbnhqnewjhvi@jpeg",
+      "labels": [],
+      "createdAt": "2025-01-12T08:32:27.443Z",
+      "description": "歪楼小警察出警啦",
+      "indexedAt": "2025-01-12T08:37:41.743Z"
+    },
+    "description": "The users allowed to summon the bot"
+  },
+  "items": [
+    {
+      "uri": "at://did:plc:67xaifiwdhqbnd6fjhj5wbos/app.bsky.graph.listitem/3lhzb64xb2p26",
+      "subject": {
+        "did": "did:plc:aecbl5ebnj55x7rmiecfxvh7",
+        "handle": "genzj.info",
+        "displayName": "genzj",
+        "avatar": "https://cdn.bsky.app/img/avatar/plain/did:plc:aecbl5ebnj55x7rmiecfxvh7/bafkreiavqa5447w5cjikv3727ltfc2idc472vfukbd2bibzqgwnaqtxq5e@jpeg",
+        "labels": [],
+        "createdAt": "2024-10-21T20:37:31.410Z",
+        "description": "宅男祈翠中… 🪧",
+        "indexedAt": "2025-01-15T19:16:45.345Z"
+      }
+    }
+  ]
+}
